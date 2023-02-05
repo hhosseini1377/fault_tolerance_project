@@ -4,15 +4,14 @@ from math import pow, exp, ceil, log10
 from numpy import random 
 import numpy as np
 from math import gcd
-import matplotlib.pyplot as plt
-import pandas as pd
+
 # System parameters
-n = 20
+n = 60
 m_set = [4]
-task_sets_num = 2000
+task_sets_num = 200
 frequency_levels = [1, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1]
-alpha = 0.01
-lambda_0 = 0.0001
+alpha = 0.1
+lambda_0 = 0.000001
 d = 4
 scaling_factor = 1
 
@@ -28,7 +27,7 @@ def generate_tasks():
     while len(sets) < task_sets_num:
 
         m = rand.choice(m_set)
-        per_core_utilization = 3.2/m
+        per_core_utilization = 1.6/m
 
         set = UUniFastDiscard(n, per_core_utilization, 1)[0]
         utilization_exceeded = False
@@ -54,7 +53,7 @@ def calculate_lambda(f):
 # Return reliability for given frequency and WCET
 def calculate_Pof(frequency: float, WCET: float):
     fault_rate = calculate_lambda(frequency)
-    return 1 - exp(-fault_rate*WCET/frequency)
+    return 1 - (1-alpha)*exp(-(fault_rate*WCET)/frequency)
 
 def calculate_power(frequency: float):
     """
@@ -96,6 +95,8 @@ class Task:
     def calculate_targeted_job_level_PoF(self, ):
         targeted_task_level_PoF = self.task_level_PoF * scaling_factor
         self.PoF_target = 1 - (1-targeted_task_level_PoF)** (1/self.jobs_in_hyper_period)
+        self.PoF_target = scaling_factor * self.job_level_PoF
+        print(self.job_level_PoF)
 
 
     def generate_EFR_table(self, ) -> list:
@@ -336,12 +337,13 @@ class Replica():
 m_sets, utilization_sets = generate_tasks()
 # Create the workload
 energy_savings = []
-while scaling_factor <10000:
+while scaling_factor > 0.0001:
     print(scaling_factor)
     energy_saving = {
         'scaling_factor': scaling_factor,
         'energy_saving': 0
     }
+
     scheduled = 0
     index = 0
     while index < len(utilization_sets):
@@ -357,21 +359,16 @@ while scaling_factor <10000:
             task.generate_EFR_table()
         try:
             if work_load.GEERP(policy='LUF'):
-                # print('System is schedulable')
-                # print(f'Total energy saving of the system: {work_load.energy_saving()}')
-                # print(f'Cumulativate utilization of the workload: {work_load.utilization}')
-                # print(f'Per core utilization of the system: {work_load.utilization/work_load.m} \n')
                 energy_saving['energy_saving'] += work_load.energy_saving()
                 scheduled += 1
                 index += 1
         except Exception as e:
-            continue                
-    print(scheduled)
+            continue    
     try:
         energy_saving['energy_saving'] /= scheduled
     except Exception as E:
         pass
     energy_savings.append(energy_saving)
-    scaling_factor *= 10
+    scaling_factor /= 10
 print(energy_savings)
 
