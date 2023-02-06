@@ -8,12 +8,12 @@ from math import gcd
 # System parameters
 n = 60
 m_set = [4]
-task_sets_num = 200
+task_sets_num = 1000
 frequency_levels = [1, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2, 0.1]
-alpha = 0.1
+alpha = 0
 lambda_0 = 0.000001
 d = 4
-scaling_factor = 1
+scaling_factor = 10000
 
 # Generate task sets
 def generate_tasks():
@@ -27,7 +27,7 @@ def generate_tasks():
     while len(sets) < task_sets_num:
 
         m = rand.choice(m_set)
-        per_core_utilization = 1.6/m
+        per_core_utilization = 2.5/m
 
         set = UUniFastDiscard(n, per_core_utilization, 1)[0]
         utilization_exceeded = False
@@ -78,9 +78,14 @@ class Task:
     """
 
     def __init__(self, utilization) -> None:
-        self.period = random.uniform(1, 10, 1)[0].astype(np.int64)*10
+        ran = random.uniform(0, 1, 1)[0]
+        if ran < 0.5:
+            self.period = 10
+        else:
+            self.period = 100
         self.WCET = utilization*self.period
         self.job_level_PoF = calculate_Pof(1, self.WCET)
+
         self.utilization = utilization
 
     def calculate_jobs_in_hyper_period(self, hyper_period):
@@ -90,14 +95,11 @@ class Task:
         task_level_reliability = 1
         for _ in range(self.jobs_in_hyper_period):
             task_level_reliability *= (1-self.job_level_PoF)
-        self.task_level_PoF = 1- task_level_reliability
+        self.task_level_PoF = 1 - task_level_reliability
     
     def calculate_targeted_job_level_PoF(self, ):
         targeted_task_level_PoF = self.task_level_PoF * scaling_factor
-        self.PoF_target = 1 - (1-targeted_task_level_PoF)** (1/self.jobs_in_hyper_period)
-        self.PoF_target = scaling_factor * self.job_level_PoF
-        print(self.job_level_PoF)
-
+        self.targeted_job_levl_PoF = 1 - (1-targeted_task_level_PoF)** (1/self.jobs_in_hyper_period)
 
     def generate_EFR_table(self, ) -> list:
         """
@@ -107,11 +109,10 @@ class Task:
 
         EFR_table = []
         for f in frequency_levels:
-            frequency_PoF = calculate_Pof(frequency=f, WCET=self.WCET)
             try: 
-                replica_count = ceil(log10(self.PoF_target)/log10(frequency_PoF))
+                replica_count = ceil(log10(self.targeted_job_levl_PoF)/log10(calculate_Pof(f, self.WCET)))
             except Exception as E:
-                break
+                print(E)
             total_execution_time = replica_count/f*self.WCET
             total_energy = calculate_energy(frequency=f, replica_count=replica_count, WCET=self.WCET)
             EFR_element = {
@@ -121,7 +122,6 @@ class Task:
                 'total_execution_time': total_execution_time,
             }
             EFR_table.append(EFR_element)
-
         index = 1
         # Remove row with higher energies and higher execution times
         while index < len(EFR_table) and len(EFR_table) > 1:
@@ -162,7 +162,8 @@ class Workload:
     def calculate_hyper_period(self):
         lcm = 1
         for task in self.task_set:
-            lcm = lcm*task.period//gcd(lcm, task.period)
+            lcm = lcm*(task.period//gcd(lcm, task.period))
+        self.hyper_period = lcm
         return lcm
 
     def LPF(self, is_fixed, settings, ):
@@ -238,7 +239,7 @@ class Workload:
 
     def energy_saving(self, ):
         """
-        This function is create to calculate amount of energy serving using system settings
+        This function is created to calculate amount of energy serving using system settings
         """
         total_energy = 0
         total_base_energy = 0
@@ -247,6 +248,7 @@ class Workload:
             total_base_energy += self.task_set[index].EFR_table[0]['total_energy']
             energy_saving = 1 - total_energy/total_base_energy
         return energy_saving
+
     def GEERP(self, policy):
         """
         This function maps the replicas on the cores.
@@ -337,7 +339,7 @@ class Replica():
 m_sets, utilization_sets = generate_tasks()
 # Create the workload
 energy_savings = []
-while scaling_factor > 0.0001:
+while scaling_factor > 0.1:
     print(scaling_factor)
     energy_saving = {
         'scaling_factor': scaling_factor,
@@ -358,7 +360,7 @@ while scaling_factor > 0.0001:
         for task in task_set:
             task.generate_EFR_table()
         try:
-            if work_load.GEERP(policy='LUF'):
+            if work_load.GEERP(policy='LEF'):
                 energy_saving['energy_saving'] += work_load.energy_saving()
                 scheduled += 1
                 index += 1
